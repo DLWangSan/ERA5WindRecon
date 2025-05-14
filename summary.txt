@@ -1,0 +1,3 @@
+Best Train Loss: 0.099156
+Best Val Loss: 0.099702
+Best Val Epoch: 4

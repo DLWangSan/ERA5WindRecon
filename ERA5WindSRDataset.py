@@ -23,7 +23,8 @@ def generate_coord_tensor(B, T, H, W, device):
 
 
 class ERA5WindSRDataset(Dataset):
-    def __init__(self, nc_path, t_in=6, t_out=36, t_scale=6, s_scale=4, use_interp_label=True, use_coord=False):
+    def __init__(self, nc_path, t_in=6, t_out=36, t_scale=6, s_scale=4, use_interp_label=True, use_coord=False,
+                 lsm_path="lsm_era5.nc"):
         self.ds = xr.open_dataset(nc_path)
         self.u10 = self.ds["u10"].values.astype(np.float32)
         self.v10 = self.ds["v10"].values.astype(np.float32)
@@ -45,6 +46,39 @@ class ERA5WindSRDataset(Dataset):
         self.v10 = self.v10[:, :self.H, :self.W]
         self.msl = self.msl[:, :self.H, :self.W]
         self.t2m = self.t2m[:, :self.H, :self.W]
+
+        if lsm_path:
+            # 加载 LSM 数据
+            lsm_ds = xr.open_dataset(lsm_path)
+            lsm_data = lsm_ds['lsm'].squeeze().values.astype(np.float32)  # shape: [lat, lon]
+            lsm_lat = lsm_ds['latitude'].values
+            lsm_lon = lsm_ds['longitude'].values
+
+            # ERA5 主数据经纬度
+            era_lat = self.ds['latitude'].values[:self.H]
+            era_lon = self.ds['longitude'].values[:self.W]
+
+            # === 匹配坐标范围（假设经纬度降序排列）===
+            lat_min, lat_max = era_lat.min(), era_lat.max()
+            lon_min, lon_max = era_lon.min(), era_lon.max()
+
+            # 找到对应范围在 LSM 中的索引（注意降序时用反向比较）
+            lat_idx = (lsm_lat <= lat_max) & (lsm_lat >= lat_min)
+            lon_idx = (lsm_lon >= lon_min) & (lsm_lon <= lon_max)
+
+            # 提取子区域的 lsm
+            lsm_sub = lsm_data[np.where(lat_idx)[0][0]:np.where(lat_idx)[0][-1] + 1,
+                      np.where(lon_idx)[0][0]:np.where(lon_idx)[0][-1] + 1]
+
+            # 翻转纬度（如果 ERA5 是升序）
+            if era_lat[0] < era_lat[-1]:
+                lsm_sub = np.flip(lsm_sub, axis=0)
+
+            self.lsm = lsm_sub  # shape: [H, W]
+
+        else:
+            self.lsm = None
+
 
         self.valid_start = list(range(0, self.T - self.t_out + 1))
 
@@ -87,6 +121,13 @@ class ERA5WindSRDataset(Dataset):
             coord = coord.unsqueeze(1).repeat(1, self.t_in, 1, 1)  # [2, T_in, H_lr, W_lr]
             x = torch.cat([x, coord], dim=0)  # 增加坐标通道
 
+        if self.lsm is not None:
+            lsm_lr = torch.tensor(self.lsm).unsqueeze(0).unsqueeze(0)  # [1, 1, H, W]
+            lsm_lr = F.interpolate(lsm_lr, size=(H_lr, W_lr), mode="bilinear", align_corners=False)
+            lsm_lr = lsm_lr.squeeze(0).squeeze(0)  # [H_lr, W_lr]
+            lsm_lr = lsm_lr.repeat(self.t_in, 1, 1)  # [T_in, H_lr, W_lr]
+
+            x = torch.cat([x, lsm_lr.unsqueeze(0)], dim=0)  # 增加通道
 
 
         if self.use_interp_label:
@@ -103,7 +144,6 @@ class ERA5WindSRDataset(Dataset):
             y = torch.tensor(np.stack([u_interp, v_interp], axis=0))
         else:
             y = torch.tensor(np.stack([u_hr, v_hr], axis=0))
-
 
         return x.float(), y.float()
 

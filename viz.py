@@ -156,7 +156,7 @@ def load_normalizer(json_path="normalizer.json"):
 # === 主流程 ===
 def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    nc_path = "../../lx/era5.nc"
+    nc_path = "../lx/era5.nc"
 
     # 加载数据集和 dataloader
     dataset = ERA5WindSRDataset(nc_path, t_in=6, t_out=36, t_scale=6, s_scale=4, use_interp_label=True)
@@ -175,7 +175,7 @@ def main():
     normalizer.mean = normalizer.mean[:4]
     normalizer.std = normalizer.std[:4]
 
-    ds_raw = xr.open_dataset("../../lx/era5.nc")
+    ds_raw = xr.open_dataset("../lx/era5.nc")
     visualize_prediction(model, dataloader, normalizer, raw_era5=ds_raw)
     visualize_vector_field(model, dataloader, normalizer, raw_era5=ds_raw)
 

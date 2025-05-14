@@ -26,7 +26,7 @@ def magnitude_loss(pred, target):
     return F.l1_loss(mag_pred, mag_true)
 
 
-def total_loss(pred, target, λ=0.01, μ=0.1):
+def total_loss(pred, target, λ=0.01, μ=0.2):
     data_loss = F.mse_loss(pred, target)
     u, v = pred[:, 0], pred[:, 1]
     phys_loss = divergence_loss(u, v)
@@ -86,24 +86,36 @@ def check_model_output_shape(model, dataloader, normalizer, device='cuda'):
             print("❌ 尺寸不一致，请检查模型参数或标签构造逻辑！")
 
 
-def plot_losses(train_losses, val_losses=None, data_losses=None, phys_losses=None, save_path=None):
+def plot_losses(train_losses, val_losses=None, data_losses=None, phys_losses=None, mag_losses=None, save_path=None):
     epochs = range(1, len(train_losses) + 1)
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(epochs, train_losses, label='Total Loss', linewidth=2)
+    fig, ax1 = plt.subplots(figsize=(9, 5))
+
+    ax1.plot(epochs, train_losses, label='Total Loss', color='tab:blue', linewidth=2)
     if val_losses:
-        ax.plot(epochs, val_losses, label='Val Loss', linewidth=2)
+        ax1.plot(epochs, val_losses, label='Val Loss', color='tab:orange', linewidth=2)
     if data_losses:
-        ax.plot(epochs, data_losses, label='Data Loss', linestyle='--')
+        ax1.plot(epochs, data_losses, label='Data Loss', color='tab:green', linestyle='--')
+    ax1.set_xlabel('Epoch')
+    ax1.set_ylabel('Total / Data Loss', color='tab:blue')
+    ax1.tick_params(axis='y', labelcolor='tab:blue')
+    ax1.grid(True, linestyle='--', alpha=0.6)
+
+    ax2 = ax1.twinx()
     if phys_losses:
-        ax.plot(epochs, phys_losses, label='Physics Loss', linestyle='--')
-    ax.set_xlabel('Epoch', fontsize=12)
-    ax.set_ylabel('Loss', fontsize=12)
-    ax.set_title('Training Curve', fontsize=14)
-    ax.grid(True, linestyle='--', alpha=0.6)
-    ax.legend(fontsize=10)
-    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax2.plot(epochs, phys_losses, label='Divergence Loss', color='tab:red', linestyle='-.')
+    if mag_losses:
+        ax2.plot(epochs, mag_losses, label='Magnitude Loss', color='tab:purple', linestyle='-.')
+    ax2.set_ylabel('Physics / Mag Loss', color='tab:red')
+    ax2.tick_params(axis='y', labelcolor='tab:red')
+
+    # 合并图例
+    lines, labels = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines + lines2, labels + labels2, loc='upper right', fontsize=9)
+
+    plt.title("Training Loss Curve")
+    plt.tight_layout()
     if save_path:
-        plt.tight_layout()
         plt.savefig(save_path, dpi=300)
     plt.close()
 
@@ -126,6 +138,12 @@ def train_model(model, train_loader, normalizer, val_loader=None,
         optimizer.load_state_dict(checkpoint['optimizer_state'])
         start_epoch = checkpoint['epoch']
         print(f"🔄 已加载模型: {model_path}，从第 {start_epoch+1} 轮继续训练")
+
+    loss_log_path = "loss_log.csv"
+    need_header = not os.path.exists(loss_log_path) or os.stat(loss_log_path).st_size == 0
+    with open(loss_log_path, "a") as f:
+        if need_header:
+            f.write("epoch,train_loss,val_loss,data_loss,phys_loss,mag_loss\n")
 
     for epoch in range(start_epoch, num_epochs):
         model.train()
@@ -176,6 +194,9 @@ def train_model(model, train_loader, normalizer, val_loader=None,
         else:
             print(f"[Epoch {epoch+1}] Train Loss: {avg_train_loss:.4f}")
 
+        with open(loss_log_path, "a") as f:
+            f.write(f"{epoch+1},{avg_train_loss:.6f},{avg_val_loss if avg_val_loss is not None else ''},{avg_data_loss:.6f},{avg_phys_loss:.6f},{avg_mag_loss:.6f}\n")
+
         if avg_train_loss < best_loss:
             best_loss = avg_train_loss
             torch.save({
@@ -185,7 +206,7 @@ def train_model(model, train_loader, normalizer, val_loader=None,
             }, model_path)
             print(f"✅ 模型已保存: {model_path}")
 
-    plot_losses(train_losses, val_losses, data_losses, phys_losses, save_path="training_loss.png")
+    plot_losses(train_losses, val_losses, data_losses, phys_losses, mag_losses, save_path="training_loss.png")
 
     with open("summary.txt", "w") as f:
         f.write(f"Best Train Loss: {min(train_losses):.6f}\n")
@@ -200,11 +221,12 @@ def run_training():
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--model_path', type=str, default='stsr_best.pth')
+    parser.add_argument('--era5_path', type=str, default=r'E:\SYSU\lx')
     parser.add_argument('--resume', action='store_true')
     args = parser.parse_args()
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    nc_path = "../../lx/era5.nc"
+    nc_path = f"{args.era5_path}/era5.nc"
     dataset = ERA5WindSRDataset(
         nc_path=nc_path,
         t_in=6, t_out=36, t_scale=6, s_scale=4,
@@ -221,14 +243,13 @@ def run_training():
     normalizer = Normalizer(mean, std).to(device)
     normalizer.save("normalizer.json")
 
-    model = STSRNetPlus(t_scale=6, s_scale=4, extra_scale=2.5, c_in=6, use_coord=True).to(device)
+    model = STSRNetPlus(t_scale=6, s_scale=4, extra_scale=2.5, c_in=7, use_coord=True).to(device)
 
     check_model_output_shape(model, train_loader, normalizer, device)
 
     train_model(model, train_loader, normalizer, val_loader,
                 num_epochs=args.epochs, lr=args.lr, lmbd=0.01,
                 device=device, model_path=args.model_path, resume=args.resume)
-
 
 
 if __name__ == "__main__":
