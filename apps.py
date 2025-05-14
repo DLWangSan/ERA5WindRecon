@@ -9,8 +9,8 @@ import os
 import argparse
 import matplotlib.pyplot as plt
 
-from temps.models import STSRNet, STSRNetPlus
-from temps.data import ERA5WindSRDataset
+from ERA5WindSRDataset import ERA5WindSRDataset
+from models import STSRNetPlus
 
 
 def divergence_loss(u, v):
