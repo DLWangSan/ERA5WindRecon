@@ -3,6 +3,7 @@
 # ========================
 import torch
 from torch import nn
+import torch.nn.functional as F
 # from torchinfo import summary
 
 
@@ -76,18 +77,35 @@ class STSRNet(nn.Module):
         return x
 
 
+class LSMGatedBlock(nn.Module):
+    def __init__(self, in_channels, lsm_channels=1):
+        super().__init__()
+        self.gate = nn.Sequential(
+            nn.Conv3d(in_channels + lsm_channels, in_channels, kernel_size=1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x, lsm):
+        # print(f"lsm.dim(): {lsm.dim()}")
+
+        lsm_upsampled = F.interpolate(lsm, size=x.shape[2:], mode='trilinear', align_corners=False)
+        gating_input = torch.cat([x, lsm_upsampled], dim=1)  # [B, C+1, T, H, W]
+        gate_mask = self.gate(gating_input)  # [B, C, T, H, W]
+        return x * gate_mask
+
 # ========================
 # 模型结构（Physics-aware + Cross-scale Transformer + Residual + CoordConv）
 # ========================
 
 class STSRNetPlus(nn.Module):
-    def __init__(self, t_scale=6, s_scale=4, extra_scale=2.5, c_in=4, use_coord=True):
+    def __init__(self, t_scale=6, s_scale=4, extra_scale=2.5, c_in=4, use_coord=True, use_lsm=True):
         super().__init__()
         self.t_scale = t_scale
         self.total_spatial_scale = s_scale * extra_scale
         self.use_coord = use_coord
         self.base_c_in = c_in
         self.c_in = c_in + 2 if use_coord else c_in
+        self.c_in = c_in +1 if use_lsm else c_in
 
         self.encoder = nn.Sequential(
             nn.Conv3d(self.c_in, 64, kernel_size=3, padding=1),
@@ -119,6 +137,8 @@ class STSRNetPlus(nn.Module):
             nn.Conv3d(128, 128, kernel_size=1)
         )
 
+        self.gate_block = LSMGatedBlock(in_channels=128)
+
         self.temporal_up = nn.Upsample(scale_factor=(t_scale, 1, 1), mode='trilinear', align_corners=False)
 
         self.spatial_up = nn.Sequential(
@@ -137,12 +157,16 @@ class STSRNetPlus(nn.Module):
             layer.self_attn.register_forward_hook(hook_fn)
 
     def forward(self, x):
+        self.attn_maps = []
         if self.use_coord:
             B, _, T, H, W = x.shape
             coord = generate_coord_tensor(B, T, H, W, x.device)
             x = torch.cat([x, coord], dim=1)
 
-        feat = self.encoder(x)
+        # 分离出 lsm 通道
+        x_base, lsm = x[:, :-1], x[:, -1:]  # [B, C-1, T, H, W], [B, 1, T, H, W]
+
+        feat = self.encoder(x_base)
         fusion = self.fusion_dilated(feat)
         feat = self.fusion_res(feat) + fusion
 
@@ -152,20 +176,17 @@ class STSRNetPlus(nn.Module):
             feat_reshape = layer(feat_reshape)
         feat = feat_reshape.reshape(T, B, H, W, C).permute(1, 4, 0, 2, 3)
 
-        feat = feat * self.attn_weight(feat)
-        feat = feat + self.physics_gate(feat)
+        attn = self.attn_weight(feat)
+        gate = self.physics_gate(feat)
+        feat = feat * attn + gate
+
+        # 插入 land/sea gate
+        feat = self.gate_block(feat, lsm)
 
         feat = self.temporal_up(feat)
         out = self.spatial_up(feat)
         return out
 
-    # def summarize(self, input_shape=(6, 6, 5, 4), device='cuda'):
-    #     """
-    #     打印模型结构摘要。
-    #     注意：传入原始输入通道数 c_in，其它尺寸自动推算。
-    #     """
-    #     dummy_input = torch.randn(1, self.c_in, *input_shape[1:]).to(device)
-    #     summary(self.to(device), input_data=dummy_input, col_names=["input_size", "output_size", "num_params", "mult_adds"], depth=3)
 
 
 

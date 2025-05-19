@@ -5,6 +5,8 @@ from matplotlib.ticker import MaxNLocator
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 import os
+import gc
+import psutil
 import argparse
 import matplotlib.pyplot as plt
 
@@ -152,70 +154,84 @@ def train_model(model, train_loader, normalizer, val_loader=None,
     with open(loss_log_path, "a") as f:
         if need_header:
             f.write("epoch,train_loss,val_loss,data_loss,phys_loss,mag_loss\n")
+    try:
+        for epoch in range(start_epoch, num_epochs):
+            model.train()
+            total_loss_epoch = 0
+            total_data_loss = 0
+            total_phys_loss = 0
+            total_mag_loss = 0
 
-    for epoch in range(start_epoch, num_epochs):
-        model.train()
-        total_loss_epoch = 0
-        total_data_loss = 0
-        total_phys_loss = 0
-        total_mag_loss = 0
+            for xb, yb, lsm in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}"):
+                xb = normalizer.normalize(xb.to(device))
+                yb = yb.to(device)
+                lsm = lsm.to(device).unsqueeze(1)  # [B, 1, T, H, W]
+                pred = model(xb)
+                loss, data_loss, phys_loss, mag_loss = total_loss(pred, yb, lsm)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
-        for xb, yb, lsm in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}"):
-            xb = normalizer.normalize(xb.to(device))
-            yb = yb.to(device)
-            lsm = lsm.to(device).unsqueeze(1)  # [B, 1, T, H, W]
-            pred = model(xb)
-            loss, data_loss, phys_loss, mag_loss = total_loss(pred, yb, lsm)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+                total_loss_epoch += loss.item()
+                total_data_loss += data_loss.item()
+                total_phys_loss += phys_loss.item()
+                total_mag_loss += mag_loss.item()
 
-            total_loss_epoch += loss.item()
-            total_data_loss += data_loss.item()
-            total_phys_loss += phys_loss.item()
-            total_mag_loss += mag_loss.item()
+                del xb, yb, pred, loss  # 清除引用
+                torch.cuda.empty_cache()
+                gc.collect()  # 手动垃圾回收
 
-        scheduler.step()
-        avg_train_loss = total_loss_epoch / len(train_loader)
-        avg_data_loss = total_data_loss / len(train_loader)
-        avg_phys_loss = total_phys_loss / len(train_loader)
-        avg_mag_loss = total_mag_loss / len(train_loader)
+            scheduler.step()
+            avg_train_loss = total_loss_epoch / len(train_loader)
+            avg_data_loss = total_data_loss / len(train_loader)
+            avg_phys_loss = total_phys_loss / len(train_loader)
+            avg_mag_loss = total_mag_loss / len(train_loader)
 
-        train_losses.append(avg_train_loss)
-        data_losses.append(avg_data_loss)
-        phys_losses.append(avg_phys_loss)
-        mag_losses.append(avg_mag_loss)
+            train_losses.append(avg_train_loss)
+            data_losses.append(avg_data_loss)
+            phys_losses.append(avg_phys_loss)
+            mag_losses.append(avg_mag_loss)
 
-        avg_val_loss = None
-        if val_loader:
-            model.eval()
-            val_loss_total = 0
-            with torch.no_grad():
-                for xb, yb, lsm in val_loader:
-                    xb = normalizer.normalize(xb.to(device))
-                    yb = yb.to(device)
-                    lsm = lsm.to(device).unsqueeze(1)
-                    pred = model(xb)
-                    loss, _, _, _ = total_loss(pred, yb, lsm)
-                    val_loss_total += loss.item()
-            avg_val_loss = val_loss_total / len(val_loader)
-            val_losses.append(avg_val_loss)
-            print(f"[Epoch {epoch + 1}] Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
-        else:
-            print(f"[Epoch {epoch + 1}] Train Loss: {avg_train_loss:.4f}")
+            avg_val_loss = None
+            if val_loader:
+                model.eval()
+                val_loss_total = 0
+                with torch.no_grad():
+                    for xb, yb, lsm in val_loader:
+                        xb = normalizer.normalize(xb.to(device))
+                        yb = yb.to(device)
+                        lsm = lsm.to(device).unsqueeze(1)
+                        pred = model(xb)
+                        loss, _, _, _ = total_loss(pred, yb, lsm)
+                        val_loss_total += loss.item()
+                        del xb, yb, pred, loss  # 清除引用
+                        torch.cuda.empty_cache()
+                        gc.collect()  # 手动垃圾回收
 
-        with open(loss_log_path, "a") as f:
-            f.write(
-                f"{epoch + 1},{avg_train_loss:.6f},{avg_val_loss if avg_val_loss is not None else ''},{avg_data_loss:.6f},{avg_phys_loss:.6f},{avg_mag_loss:.6f}\n")
+                avg_val_loss = val_loss_total / len(val_loader)
+                val_losses.append(avg_val_loss)
+                print(f"[Epoch {epoch + 1}] Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+            else:
+                print(f"[Epoch {epoch + 1}] Train Loss: {avg_train_loss:.4f}")
 
-        if avg_train_loss < best_loss:
-            best_loss = avg_train_loss
-            torch.save({
-                'model_state': model.state_dict(),
-                'optimizer_state': optimizer.state_dict(),
-                'epoch': epoch + 1
-            }, model_path)
-            print(f"✅ 模型已保存: {model_path}")
+            with open(loss_log_path, "a") as f:
+                f.write(
+                    f"{epoch + 1},{avg_train_loss:.6f},{avg_val_loss if avg_val_loss is not None else ''},{avg_data_loss:.6f},{avg_phys_loss:.6f},{avg_mag_loss:.6f}\n")
+
+            if avg_train_loss < best_loss:
+                best_loss = avg_train_loss
+                torch.save({
+                    'model_state': model.state_dict(),
+                    'optimizer_state': optimizer.state_dict(),
+                    'epoch': epoch + 1
+                }, model_path)
+                print(f"✅ 模型已保存: {model_path}")
+
+            print(f"[Memory] {psutil.Process().memory_info().rss / 1024 ** 2:.2f} MB")
+    except Exception as e:
+        print(e.__str__())
+        import traceback
+        traceback.print_exc()
 
     plot_losses(train_losses, val_losses, data_losses, phys_losses, mag_losses, save_path="training_loss.png")
 
