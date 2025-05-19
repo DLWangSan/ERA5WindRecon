@@ -3,7 +3,7 @@
 # ========================
 import torch
 from torch import nn
-from torchinfo import summary
+# from torchinfo import summary
 
 
 def generate_coord_tensor(B, T, H, W, device):
@@ -159,13 +159,13 @@ class STSRNetPlus(nn.Module):
         out = self.spatial_up(feat)
         return out
 
-    def summarize(self, input_shape=(6, 6, 5, 4), device='cuda'):
-        """
-        打印模型结构摘要。
-        注意：传入原始输入通道数 c_in，其它尺寸自动推算。
-        """
-        dummy_input = torch.randn(1, self.c_in, *input_shape[1:]).to(device)
-        summary(self.to(device), input_data=dummy_input, col_names=["input_size", "output_size", "num_params", "mult_adds"], depth=3)
+    # def summarize(self, input_shape=(6, 6, 5, 4), device='cuda'):
+    #     """
+    #     打印模型结构摘要。
+    #     注意：传入原始输入通道数 c_in，其它尺寸自动推算。
+    #     """
+    #     dummy_input = torch.randn(1, self.c_in, *input_shape[1:]).to(device)
+    #     summary(self.to(device), input_data=dummy_input, col_names=["input_size", "output_size", "num_params", "mult_adds"], depth=3)
 
 
 

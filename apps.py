@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from matplotlib.ticker import MaxNLocator
 from torch.utils.data import DataLoader, random_split
-from torchinfo import summary
 from tqdm import tqdm
 import os
 import argparse
@@ -25,13 +24,22 @@ def magnitude_loss(pred, target):
     mag_true = torch.sqrt(target[:, 0]**2 + target[:, 1]**2)
     return F.l1_loss(mag_pred, mag_true)
 
+def edge_smoothness_loss(pred, lsm_mask):
+    B, _, T, H, W = pred.shape
+    lsm_mask = F.interpolate(lsm_mask, size=(T, H, W), mode="trilinear", align_corners=False)
+    grad_u = torch.abs(pred[:, 0, :, 1:, :] - pred[:, 0, :, :-1, :])  # [B, T, H-1, W]
+    grad_v = torch.abs(pred[:, 1, :, :, 1:] - pred[:, 1, :, :, :-1])  # [B, T, H, W-1]
+    loss_u = torch.mean(grad_u * lsm_mask[:, 0, :, :-1, :])
+    loss_v = torch.mean(grad_v * lsm_mask[:, 0, :, :, :-1])
+    return loss_u + loss_v
 
-def total_loss(pred, target, λ=0.01, μ=0.2):
+def total_loss(pred, target, lsm_mask=None, λ=0.01, μ=0.8, γ=0.2):
     data_loss = F.mse_loss(pred, target)
     u, v = pred[:, 0], pred[:, 1]
     phys_loss = divergence_loss(u, v)
     mag_loss = magnitude_loss(pred, target)
-    return data_loss + λ * phys_loss + μ * mag_loss, data_loss, phys_loss, mag_loss
+    edge_loss = edge_smoothness_loss(pred, lsm_mask) if lsm_mask is not None else 0.0
+    return data_loss + λ * phys_loss + μ * mag_loss + γ * edge_loss, data_loss, phys_loss, mag_loss
 
 
 class Normalizer:
@@ -64,7 +72,7 @@ class Normalizer:
 def compute_mean_std(dataset, num_batches=10):
     means, stds = [], []
     for i in range(num_batches):
-        x, _ = dataset[i]
+        x, _, _ = dataset[i]
         means.append(x.mean(dim=(1, 2, 3)))
         stds.append(x.std(dim=(1, 2, 3)))
     return torch.stack(means).mean(dim=0), torch.stack(stds).mean(dim=0)
@@ -73,7 +81,7 @@ def compute_mean_std(dataset, num_batches=10):
 def check_model_output_shape(model, dataloader, normalizer, device='cuda'):
     model.eval()
     with torch.no_grad():
-        xb, yb = next(iter(dataloader))
+        xb, yb, lsm = next(iter(dataloader))
         xb = normalizer.normalize(xb.to(device))
         yb = yb.to(device)
         pred = model(xb)
@@ -152,12 +160,13 @@ def train_model(model, train_loader, normalizer, val_loader=None,
         total_phys_loss = 0
         total_mag_loss = 0
 
-        for xb, yb in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}"):
+        for xb, yb, lsm in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}"):
             xb = normalizer.normalize(xb.to(device))
             yb = yb.to(device)
-            optimizer.zero_grad()
+            lsm = lsm.to(device).unsqueeze(1)  # [B, 1, T, H, W]
             pred = model(xb)
-            loss, data_loss, phys_loss, mag_loss = total_loss(pred, yb, lmbd)
+            loss, data_loss, phys_loss, mag_loss = total_loss(pred, yb, lsm)
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
@@ -182,20 +191,22 @@ def train_model(model, train_loader, normalizer, val_loader=None,
             model.eval()
             val_loss_total = 0
             with torch.no_grad():
-                for xb, yb in val_loader:
+                for xb, yb, lsm in val_loader:
                     xb = normalizer.normalize(xb.to(device))
                     yb = yb.to(device)
+                    lsm = lsm.to(device).unsqueeze(1)
                     pred = model(xb)
-                    loss, _, _, _ = total_loss(pred, yb, lmbd)
+                    loss, _, _, _ = total_loss(pred, yb, lsm)
                     val_loss_total += loss.item()
             avg_val_loss = val_loss_total / len(val_loader)
             val_losses.append(avg_val_loss)
-            print(f"[Epoch {epoch+1}] Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+            print(f"[Epoch {epoch + 1}] Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
         else:
-            print(f"[Epoch {epoch+1}] Train Loss: {avg_train_loss:.4f}")
+            print(f"[Epoch {epoch + 1}] Train Loss: {avg_train_loss:.4f}")
 
         with open(loss_log_path, "a") as f:
-            f.write(f"{epoch+1},{avg_train_loss:.6f},{avg_val_loss if avg_val_loss is not None else ''},{avg_data_loss:.6f},{avg_phys_loss:.6f},{avg_mag_loss:.6f}\n")
+            f.write(
+                f"{epoch + 1},{avg_train_loss:.6f},{avg_val_loss if avg_val_loss is not None else ''},{avg_data_loss:.6f},{avg_phys_loss:.6f},{avg_mag_loss:.6f}\n")
 
         if avg_train_loss < best_loss:
             best_loss = avg_train_loss
@@ -217,7 +228,7 @@ def train_model(model, train_loader, normalizer, val_loader=None,
 
 def run_training():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--model_path', type=str, default='stsr_best.pth')
@@ -226,10 +237,11 @@ def run_training():
     args = parser.parse_args()
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(device)
     nc_path = f"{args.era5_path}/era5.nc"
     dataset = ERA5WindSRDataset(
         nc_path=nc_path,
-        t_in=6, t_out=36, t_scale=6, s_scale=4,
+        t_in=6, t_out=36, t_scale=6, s_scale=2,
         use_coord=True
     )
     train_size = int(0.9 * len(dataset))
@@ -243,7 +255,7 @@ def run_training():
     normalizer = Normalizer(mean, std).to(device)
     normalizer.save("normalizer.json")
 
-    model = STSRNetPlus(t_scale=6, s_scale=4, extra_scale=2.5, c_in=7, use_coord=True).to(device)
+    model = STSRNetPlus(t_scale=6, s_scale=2, extra_scale=2.5, c_in=7, use_coord=True).to(device)
 
     check_model_output_shape(model, train_loader, normalizer, device)
 

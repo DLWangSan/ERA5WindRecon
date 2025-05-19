@@ -141,10 +141,15 @@ class ERA5WindSRDataset(Dataset):
 
             u_interp = interp_time_space(self.u10[t0:t0 + self.t_out])
             v_interp = interp_time_space(self.v10[t0:t0 + self.t_out])
-            y = torch.tensor(np.stack([u_interp, v_interp], axis=0))
+            u_interp = u_interp.astype(np.float32, copy=False)
+            v_interp = v_interp.astype(np.float32, copy=False)
+
+            # y = torch.tensor(np.stack([u_interp, v_interp], axis=0))
+            y = torch.tensor(np.stack([u_interp, v_interp], axis=0), dtype=torch.float32)
+
         else:
             y = torch.tensor(np.stack([u_hr, v_hr], axis=0))
 
-        return x.float(), y.float()
+        return x.float(), y.float(), lsm_lr.float()  # 新增返回边界 mask
 
 

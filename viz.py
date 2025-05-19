@@ -18,7 +18,7 @@ def visualize_prediction(model, dataloader, normalizer, raw_era5, device='cuda',
     os.makedirs(save_dir, exist_ok=True)
     model.eval()
     with torch.no_grad():
-        xb, yb = next(iter(dataloader))
+        xb, yb, _ = next(iter(dataloader))
         xb = xb.to(device)
         yb = yb.to(device)
 
@@ -85,7 +85,7 @@ def visualize_vector_field(model, dataloader, normalizer, raw_era5, device='cuda
     model.eval()
 
     with torch.no_grad():
-        xb, yb = next(iter(dataloader))
+        xb, yb, _ = next(iter(dataloader))
         xb = xb.to(device)
         yb = yb.to(device)
 
@@ -164,7 +164,7 @@ def main():
 
     # 加载模型
     # model = STSRNet(t_scale=6, s_scale=4, extra_scale=2.5, c_in=4).to(device)
-    model = STSRNetPlus(t_scale=6, s_scale=4, extra_scale=2.5, c_in=6, use_coord=True).to(device)
+    model = STSRNetPlus(t_scale=6, s_scale=4, extra_scale=2.5, c_in=7, use_coord=True).to(device)
     checkpoint = torch.load("stsr_best.pth", map_location=device)
     model.load_state_dict(checkpoint["model_state"])
     print("✅ 模型加载完成")
