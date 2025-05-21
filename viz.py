@@ -22,27 +22,23 @@ def visualize_prediction(model, dataloader, normalizer, raw_era5, device='cuda',
         xb = xb.to(device)
         yb = yb.to(device)
 
-        # 仅提取物理通道（不包括坐标）
-        xb_phys = xb[:, :4]  # [B, 4, T, H, W]
-        xb_coord = xb[:, 4:] if xb.shape[1] > 4 else None
+        # 对完整的 xb (7 通道) 应用归一化
+        xb_norm = normalizer.normalize(xb)
 
-        xb_phys_norm = normalizer.normalize(xb_phys)  # 仅标准化前4通道
-        xb_norm = torch.cat([xb_phys_norm, xb_coord], dim=1) if xb_coord is not None else xb_phys_norm
-
-        # 自动添加坐标通道（如模型需要）
+        # 自动添加坐标通道（如模型需要，且原始坐标不足）
         if getattr(model, "use_coord", False):
             B, _, T, H, W = xb.shape
-            yy, xx = torch.meshgrid(
-                torch.linspace(-1, 1, H, device=device),
-                torch.linspace(-1, 1, W, device=device),
-                indexing='ij')
-            coord = torch.stack([xx, yy], dim=0).unsqueeze(0).unsqueeze(2).repeat(B, 1, T, 1, 1)
-            xb_norm = torch.cat([xb_norm, coord], dim=1)
-
-
+            # 如果 xb 的坐标通道 (第 5-6 维) 已包含，跳过添加
+            if xb.shape[1] < 7:  # 假设 7 通道包括 4 物理 + 2 坐标 + 1 lsm
+                yy, xx = torch.meshgrid(
+                    torch.linspace(-1, 1, H, device=device),
+                    torch.linspace(-1, 1, W, device=device),
+                    indexing='ij')
+                coord = torch.stack([xx, yy], dim=0).unsqueeze(0).unsqueeze(2).repeat(B, 1, T, 1, 1)
+                xb_norm = torch.cat([xb_norm, coord], dim=1)
 
         pred = model(xb_norm)
-        pred = pred * normalizer.std[:2].to(device) + normalizer.mean[:2].to(device)
+        # pred = pred * normalizer.std[:2].to(device) + normalizer.mean[:2].to(device)
 
         # === 取第一个样本、某一时间点 ===
         idx, t = 0, 5
@@ -68,7 +64,7 @@ def visualize_prediction(model, dataloader, normalizer, raw_era5, device='cuda',
         vmaxs = [vmax, vmax, vmax, err_vmax]
 
         for ax, data, title, cmap, vmin_, vmax_ in zip(axs, images, titles, cmaps, vmins, vmaxs):
-            im = ax.imshow(data, cmap=cmap, vmin=vmin_, vmax=vmax_)
+            im = ax.imshow(data, cmap=cmap)
             ax.set_title(title)
             fig.colorbar(im, ax=ax, shrink=0.7)
             ax.axis('off')
@@ -89,25 +85,22 @@ def visualize_vector_field(model, dataloader, normalizer, raw_era5, device='cuda
         xb = xb.to(device)
         yb = yb.to(device)
 
-        # 仅标准化前4通道
-        xb_phys = xb[:, :4]
-        xb_coord = xb[:, 4:] if xb.shape[1] > 4 else None
-        xb_phys_norm = normalizer.normalize(xb_phys)
-        xb_norm = torch.cat([xb_phys_norm, xb_coord], dim=1) if xb_coord is not None else xb_phys_norm
+        # 对完整的 xb (7 通道) 应用归一化
+        xb_norm = normalizer.normalize(xb)
 
-        # 添加坐标（兼容 use_coord）
+        # 自动添加坐标通道（如模型需要，且原始坐标不足）
         if getattr(model, "use_coord", False):
             B, _, T, H, W = xb.shape
-            yy, xx = torch.meshgrid(
-                torch.linspace(-1, 1, H, device=device),
-                torch.linspace(-1, 1, W, device=device),
-                indexing='ij')
-
-            coords = torch.stack([xx, yy], dim=0).unsqueeze(0).unsqueeze(2).repeat(B, 1, T, 1, 1)
-            xb_norm = torch.cat([xb_norm, coords], dim=1)
+            if xb.shape[1] < 7:  # 假设 7 通道包括 4 物理 + 2 坐标 + 1 lsm
+                yy, xx = torch.meshgrid(
+                    torch.linspace(-1, 1, H, device=device),
+                    torch.linspace(-1, 1, W, device=device),
+                    indexing='ij')
+                coords = torch.stack([xx, yy], dim=0).unsqueeze(0).unsqueeze(2).repeat(B, 1, T, 1, 1)
+                xb_norm = torch.cat([xb_norm, coords], dim=1)
 
         pred = model(xb_norm)
-        pred = pred * normalizer.std[:2].to(device) + normalizer.mean[:2].to(device)
+        # pred = pred * normalizer.std[:2].to(device) + normalizer.mean[:2].to(device)
 
         # === 选择第0个样本，第t帧 ===
         idx, t = 7, 5
@@ -149,8 +142,8 @@ def visualize_vector_field(model, dataloader, normalizer, raw_era5, device='cuda
 def load_normalizer(json_path="normalizer.json"):
     with open(json_path, "r") as f:
         d = json.load(f)
-    mean = torch.tensor(d["mean"]).view(-1, 1, 1, 1)
-    std = torch.tensor(d["std"]).view(-1, 1, 1, 1)
+    mean = torch.tensor(d["mean"]).view(-1, 1, 1, 1)  # [4, 1, 1, 1]
+    std = torch.tensor(d["std"]).view(-1, 1, 1, 1)    # [4, 1, 1, 1]
     return Normalizer(mean, std)
 
 # === 主流程 ===
@@ -159,21 +152,18 @@ def main():
     nc_path = "../lx/era5.nc"
 
     # 加载数据集和 dataloader
-    dataset = ERA5WindSRDataset(nc_path, t_in=6, t_out=36, t_scale=6, s_scale=4, use_interp_label=True)
+    dataset = ERA5WindSRDataset(nc_path, t_in=6, t_out=36, t_scale=6, s_scale=1, use_coord=True)
     dataloader = DataLoader(dataset, batch_size=8, shuffle=False)
 
     # 加载模型
     # model = STSRNet(t_scale=6, s_scale=4, extra_scale=2.5, c_in=4).to(device)
-    model = STSRNetPlus(t_scale=6, s_scale=4, extra_scale=2.5, c_in=7, use_coord=True).to(device)
+    model = STSRNetPlus(t_scale=6, s_scale=1, extra_scale=2.5, c_in=7, use_coord=True).to(device)
     checkpoint = torch.load("stsr_best.pth", map_location=device)
     model.load_state_dict(checkpoint["model_state"])
     print("✅ 模型加载完成")
 
     # 加载标准化器
     normalizer = load_normalizer().to(device)
-    # ⚠️ 仅保留前4个物理通道（去除 CoordConv 坐标通道的均值和方差）
-    normalizer.mean = normalizer.mean[:4]
-    normalizer.std = normalizer.std[:4]
 
     ds_raw = xr.open_dataset("../lx/era5.nc")
     visualize_prediction(model, dataloader, normalizer, raw_era5=ds_raw)

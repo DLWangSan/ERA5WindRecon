@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 import os
 import gc
+import json
 import psutil
 import argparse
 import matplotlib.pyplot as plt
@@ -46,14 +47,41 @@ def total_loss(pred, target, lsm_mask=None, λ=0.01, μ=0.8, γ=0.2):
 
 class Normalizer:
     def __init__(self, mean: torch.Tensor, std: torch.Tensor):
-        self.mean = mean.view(-1, 1, 1, 1)
-        self.std = std.view(-1, 1, 1, 1)
+        self.mean = mean.view(-1, 1, 1, 1)  # [4, 1, 1, 1]，只对应物理通道
+        self.std = std.view(-1, 1, 1, 1)    # [4, 1, 1, 1]，只对应物理通道
 
     def normalize(self, x):
-        return (x - self.mean) / (self.std + 1e-6)
+        # 检查输入张量的维度，确保正确处理批量和通道
+        if len(x.shape) != 5:  # 预期 [batch_size, channels, t_in, H_lr, W_lr]
+            raise ValueError(f"Expected 5D tensor, got shape {x.shape}")
+        batch_size = x.shape[0]
+        channels = x.shape[1]
+        if channels < 7:  # 预期 7 个通道 (4 物理 + 2 坐标 + 1 lsm)
+            raise ValueError(f"Expected at least 7 channels, got {channels}")
+
+        # 提取物理通道 (前 4 个通道)
+        x_phys = x[:, :4, :, :, :]  # [batch_size, 4, t_in, H_lr, W_lr]
+        x_coord_lsm = x[:, 4:, :, :, :] if channels > 4 else None  # [batch_size, 3, t_in, H_lr, W_lr]
+
+        # 确保 self.mean 和 self.std 的形状与 x_phys 的通道数匹配
+        if self.mean.shape[0] != 4 or self.std.shape[0] != 4:
+            raise ValueError(
+                f"Expected self.mean and self.std to have 4 channels, got {self.mean.shape[0]} and {self.std.shape[0]}")
+
+        # 广播 self.mean 和 self.std 到 [batch_size, 4, 1, 1, 1]
+        mean_broadcast = self.mean.view(1, 4, 1, 1, 1).expand(batch_size, -1, x.shape[2], x.shape[3], x.shape[4])
+        std_broadcast = self.std.view(1, 4, 1, 1, 1).expand(batch_size, -1, x.shape[2], x.shape[3], x.shape[4])
+
+        x_phys_norm = (x_phys - mean_broadcast) / (std_broadcast + 1e-6)  # 只归一化物理通道
+        if x_coord_lsm is not None:
+            return torch.cat([x_phys_norm, x_coord_lsm], dim=1)  # 拼接回原始通道
+        return x_phys_norm
 
     def denormalize(self, x):
-        return x * self.std + self.mean
+        x_phys = x[:2]  # 只对 u, v 通道反归一化
+        x_rest = x[2:] if x.shape[0] > 2 else None
+        x_phys_denorm = x_phys * self.std[:2] + self.mean[:2]
+        return torch.cat([x_phys_denorm, x_rest], dim=0) if x_rest is not None else x_phys_denorm
 
     def to(self, device):
         self.mean = self.mean.to(device)
@@ -71,12 +99,13 @@ class Normalizer:
 
 
 
-def compute_mean_std(dataset, num_batches=10):
+def compute_mean_std(dataset):
     means, stds = [], []
-    for i in range(num_batches):
+    for i in tqdm(range(len(dataset))):
         x, _, _ = dataset[i]
-        means.append(x.mean(dim=(1, 2, 3)))
-        stds.append(x.std(dim=(1, 2, 3)))
+        x_phys = x[:4]  # 只取物理通道 (u10, v10, msl, t2m)
+        means.append(x_phys.mean(dim=(1, 2, 3)))
+        stds.append(x_phys.std(dim=(1, 2, 3)))
     return torch.stack(means).mean(dim=0), torch.stack(stds).mean(dim=0)
 
 
@@ -260,6 +289,23 @@ def run_training():
         t_in=6, t_out=36, t_scale=6, s_scale=2,
         use_coord=True
     )
+
+    # 判断 normalizer.json 是否存在
+    if not os.path.exists("normalizer.json"):
+        mean, std = compute_mean_std(dataset)
+        normalizer = Normalizer(mean, std).to(device)
+        normalizer.save("normalizer.json")
+        print("New mean:", mean, "New std:", std)
+    else:
+        # 加载已存在的 normalizer.json
+        with open("normalizer.json", "r") as f:
+            d = json.load(f)
+        mean = torch.tensor(d["mean"]).view(-1, 1, 1, 1)  # [4, 1, 1, 1]
+        std = torch.tensor(d["std"]).view(-1, 1, 1, 1)  # [4, 1, 1, 1]
+        normalizer = Normalizer(mean, std).to(device)
+        print("Loaded mean:", mean, "Loaded std:", std)
+
+
     train_size = int(0.9 * len(dataset))
     val_size = len(dataset) - train_size
     train_set, val_set = random_split(dataset, [train_size, val_size])
@@ -267,9 +313,9 @@ def run_training():
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False)
 
-    mean, std = compute_mean_std(train_set)
-    normalizer = Normalizer(mean, std).to(device)
-    normalizer.save("normalizer.json")
+    # mean, std = compute_mean_std(train_set)
+    # normalizer = Normalizer(mean, std).to(device)
+    # normalizer.save("normalizer.json")
 
     model = STSRNetPlus(t_scale=6, s_scale=2, extra_scale=2.5, c_in=7, use_coord=True).to(device)
 

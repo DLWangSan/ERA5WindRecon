@@ -23,7 +23,7 @@ def generate_coord_tensor(B, T, H, W, device):
 
 
 class ERA5WindSRDataset(Dataset):
-    def __init__(self, nc_path, t_in=6, t_out=36, t_scale=6, s_scale=4, use_interp_label=True, use_coord=False,
+    def __init__(self, nc_path, t_in=6, t_out=36, t_scale=6, s_scale=4, use_interp_label=True, use_coord=True,
                  lsm_path="lsm_era5.nc"):
         self.ds = xr.open_dataset(nc_path)
         self.u10 = self.ds["u10"].values.astype(np.float32)
@@ -135,7 +135,7 @@ class ERA5WindSRDataset(Dataset):
             t_dst = np.arange(0, self.t_out)
 
             def interp_time_space(var):
-                f = interp1d(t_src, var[::self.t_scale], axis=0, kind='linear', fill_value='extrapolate')
+                f = interp1d(t_src, var[::self.t_scale], axis=0, kind='cubic', fill_value='extrapolate')
                 var_t = f(t_dst)
                 return zoom(var_t, zoom=(1, 2.5, 2.5), order=1)
 
