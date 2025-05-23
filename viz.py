@@ -152,12 +152,12 @@ def main():
     nc_path = "../lx/era5.nc"
 
     # 加载数据集和 dataloader
-    dataset = ERA5WindSRDataset(nc_path, t_in=6, t_out=36, t_scale=6, s_scale=1, use_coord=True)
+    dataset = ERA5WindSRDataset(nc_path, t_in=6, t_out=36, t_scale=6, s_scale=2, use_coord=True)
     dataloader = DataLoader(dataset, batch_size=8, shuffle=False)
 
     # 加载模型
     # model = STSRNet(t_scale=6, s_scale=4, extra_scale=2.5, c_in=4).to(device)
-    model = STSRNetPlus(t_scale=6, s_scale=1, extra_scale=2.5, c_in=7, use_coord=True).to(device)
+    model = STSRNetPlus(t_scale=6, s_scale=2, extra_scale=2.5, c_in=7, use_coord=True).to(device)
     checkpoint = torch.load("stsr_best.pth", map_location=device)
     model.load_state_dict(checkpoint["model_state"])
     print("✅ 模型加载完成")
