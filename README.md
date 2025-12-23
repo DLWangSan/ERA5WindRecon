@@ -134,7 +134,7 @@ If you use this code in your research, please cite:
 
 For questions or issues, please contact:
 - Email: wangshx59@mail2.sysu.edu.cn
-- GitHub Issues: [Create an issue](https://github.com/yourusername/ERA5WindRecon/issues)
+- GitHub Issues: [Create an issue](https://github.com/DLWangSan/ERA5WindRecon/issues)
 
 ## Acknowledgments
 
