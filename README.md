@@ -133,7 +133,7 @@ If you use this code in your research, please cite:
 ## Contact
 
 For questions or issues, please contact:
-- Email: caihy7@mail.sysu.edu.cn
+- Email: wangshx59@mail2.sysu.edu.cn
 - GitHub Issues: [Create an issue](https://github.com/yourusername/ERA5WindRecon/issues)
 
 ## Acknowledgments
