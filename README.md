@@ -123,14 +123,12 @@ If you use this code in your research, please cite:
 @article{stsrnet2025,
   title={Physics-Guided Super-Resolution of Reanalysis Wind Fields in the Guangdong-Hong Kong-Macao Greater Bay Area},
   author={Wang, Shuxian and Liu, Xin and Wang, Yajun and Zheng, Jiajie and Ou, Suying and Wang, Jiuke and Cai, Huayang},
-  journal={Nuclear Physics B},
+  Under review
   year={2025}
 }
 ```
 
-## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Contact
 
