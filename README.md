@@ -115,18 +115,6 @@ Validation against HadISD station observations shows:
 ![Comparison with ERA5](images/5.compare2era5.jpg)
 
 
-## Citation
-
-If you use this code in your research, please cite:
-
-```bibtex
-@article{stsrnet2025,
-  title={Physics-Guided Super-Resolution of Reanalysis Wind Fields in the Guangdong-Hong Kong-Macao Greater Bay Area},
-  author={Wang, Shuxian and Liu, Xin and Wang, Yajun and Zheng, Jiajie and Ou, Suying and Wang, Jiuke and Cai, Huayang},
-  Under review
-  year={2025}
-}
-```
 
 
 
@@ -136,7 +124,10 @@ For questions or issues, please contact:
 - Email: wangshx59@mail2.sysu.edu.cn
 - GitHub Issues: [Create an issue](https://github.com/DLWangSan/ERA5WindRecon/issues)
 
-## Acknowledgments
 
-This work was supported by the Institute of Estuarine and Coastal Research, Sun Yat-Sen University, and the Southern Marine Science and Engineering Guangdong Laboratory (Zhuhai).
+
+
+
+
+
 
