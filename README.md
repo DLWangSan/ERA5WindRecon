@@ -46,27 +46,28 @@ The STSRNet framework consists of three main components:
 git clone https://github.com/DLWangSan/ERA5WindRecon.git
 cd ERA5WindRecon
 
+# (Optional) create a virtual environment
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# Linux/macOS: source .venv/bin/activate
+
 # Install dependencies
 pip install -r requirements.txt
 ```
+
+Install a **PyTorch** build that matches your machine ([pytorch.org](https://pytorch.org/get-started/locally/)) if `pip install -r requirements.txt` does not already give you CUDA. A GPU is recommended; CPU runs but is slower. The list includes `netcdf4` so `xarray` can read `.nc` files.
 
 ## Quick start (inference)
 
 The repository includes a small **example** ERA5 slice and a land–sea mask under [`example_data/`](example_data/) so you can run inference without preparing full regional archives first.
 
-1. **Environment** (recommended): use a Conda env with PyTorch and NetCDF I/O, for example:
-
-   ```bash
-   conda activate mytorch
-   ```
-
-   Then install dependencies as in [Installation](#installation) (PyTorch with CUDA is recommended; CPU works but is slower). `netcdf4` (or another xarray NetCDF engine) must be available so `xarray` can open `.nc` files.
+1. **Environment.** From the repo root, use `pip` as in [Installation](#installation). No Conda is required.
 
 2. **Bundled checkpoint.** This repo includes a trained weight file and matching statistics so you can run inference without training first:
    - `runs/train/normal/stsr_best.pth`
    - `normalizer.json` (must pair with that checkpoint)
 
-3. **Run inference** on the example NetCDF and LSM (defaults match training: `--t_in 18` / `--t_out 36`):
+3. **Run inference** on the example NetCDF and LSM. In `src/inference.py`, **`--t_in` defaults to 18** and **`--t_out` defaults to 36** (same as training); you only need to pass them if you use other values.
 
    ```bash
    python src/inference.py \
@@ -76,10 +77,13 @@ The repository includes a small **example** ERA5 slice and a land–sea mask und
        --era5_path example_data/ERA5_2026_04.nc \
        --lsm_path example_data/lsm_era5.nc \
        --output_path outputs/reconstructed.nc \
-       --t_in 18 \
-       --t_out 36 \
-       --batch_size 8 \
        --plot_path outputs/wind_snapshot_t0.png
+   ```
+
+   **Windows (PowerShell / CMD), one line — copy as a single command:**
+
+   ```text
+   python src/inference.py --model_type normal --checkpoint_path runs/train/normal/stsr_best.pth --normalizer_path normalizer.json --era5_path example_data/ERA5_2026_04.nc --lsm_path example_data/lsm_era5.nc --output_path outputs/reconstructed.nc --plot_path outputs/wind_snapshot_t0.png
    ```
 
    Run from the repository root. Do **not** use `--denormalize_uv` unless you know the network outputs normalized wind (default training uses physical m/s targets).
@@ -119,6 +123,8 @@ python src/train.py \
 
 ### Inference
 
+`--t_in` and `--t_out` default to **18** and **36** in `src/inference.py`; override only if your checkpoint was trained with different windows.
+
 ```bash
 python src/inference.py \
     --model_type normal \
@@ -128,16 +134,6 @@ python src/inference.py \
     --normalizer_path normalizer.json \
     --lsm_path lsm_era5.nc
 ```
-
-## Model Variants
-
-The repository includes several model variants for ablation studies:
-
-- `normal`: Full STSRNet with all components
-- `compare1`: Without multi-scale fusion
-- `compare2`: Without temporal Transformer
-- `compare3`: Without attention and physics gating
-- `compare4`: Without LSM gating
 
 ## Results
 

@@ -32,15 +32,12 @@ ERA5WindRecon/
 ## Key Files
 
 - **src/dataset.py**: Implements `ERA5WindSRDataset` for loading and preprocessing ERA5 data
-- **src/models.py**: Contains all model architectures (STSRNetPlus and ablation variants)
+- **src/models.py**: STSRNetPlus and related building blocks
 - **src/train.py**: Training script with physics-guided loss functions
 - **src/inference.py**: Script for generating reconstructed NetCDF files
 
-## Model Variants
 
-- `STSRNetPlus`: Full model with all components
-- `STSRNetPlusCompare1`: Without multi-scale fusion
-- `STSRNetPlusCompare2`: Without temporal Transformer
-- `STSRNetPlusCompare3`: Without attention and physics gating
-- `STSRNetPlusCompare4`: Without LSM gating
+
+
+
 
