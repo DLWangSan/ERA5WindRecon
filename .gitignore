@@ -20,8 +20,9 @@ wheels/
 .installed.cfg
 *.egg
 
-# PyTorch
+# PyTorch (keep bundled demo checkpoint)
 *.pth
+!runs/train/normal/stsr_best.pth
 *.pt
 *.onnx
 
@@ -51,7 +52,8 @@ venv.bak/
 *.h5
 *.hdf5
 data/
-runs/
+runs/train/normal/*.csv
+runs/train/normal/*.png
 outputs/
 temps/
 
@@ -61,8 +63,7 @@ temps/
 loss_log.csv
 train_loss_log.csv
 
-# Normalizer
-normalizer.json
+# Normalizer (repo ships one matching the bundled checkpoint)
 normalizer_*.json
 
 # OS

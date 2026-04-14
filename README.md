@@ -62,41 +62,31 @@ The repository includes a small **example** ERA5 slice and a land–sea mask und
 
    Then install dependencies as in [Installation](#installation) (PyTorch with CUDA is recommended; CPU works but is slower). `netcdf4` (or another xarray NetCDF engine) must be available so `xarray` can open `.nc` files.
 
-2. **Obtain a checkpoint and `normalizer.json`.** Training writes them under `runs/train/<model_type>/` and the project root (see [Training](#training)). After training the `normal` variant you should have:
+2. **Bundled checkpoint.** This repo includes a trained weight file and matching statistics so you can run inference without training first:
    - `runs/train/normal/stsr_best.pth`
-   - `normalizer.json` (created on the first training run in the working directory if missing)
+   - `normalizer.json` (must pair with that checkpoint)
 
-   The bundled example only has **24 hourly** time steps, so use **`--t_in 12`** and **`--t_out 12`** (default training uses `18` / `36`, which requires a longer series). Example smoke training:
-
-   ```bash
-   python src/train.py \
-       --era5_path example_data \
-       --filename ERA5_2026_04_08.nc \
-       --model_type normal \
-       --lsm_path example_data/lsm_era5.nc \
-       --epochs 1 \
-       --batch_size 2 \
-       --t_in 12 \
-       --t_out 12
-   ```
-
-3. **Run inference** with the **same** `--t_in` / `--t_out` as training:
+3. **Run inference** on the example NetCDF and LSM (defaults match training: `--t_in 18` / `--t_out 36`):
 
    ```bash
    python src/inference.py \
        --model_type normal \
        --checkpoint_path runs/train/normal/stsr_best.pth \
-       --era5_path example_data/ERA5_2026_04_08.nc \
-       --lsm_path example_data/lsm_era5.nc \
        --normalizer_path normalizer.json \
-       --output_path outputs/example_reconstructed.nc \
-       --t_in 12 \
-       --t_out 12
+       --era5_path example_data/ERA5_2026_04.nc \
+       --lsm_path example_data/lsm_era5.nc \
+       --output_path outputs/reconstructed.nc \
+       --t_in 18 \
+       --t_out 36 \
+       --batch_size 8 \
+       --plot_path outputs/wind_snapshot_t0.png
    ```
 
-   Run these commands from the repository root (`python src/...` puts `src` on the import path). The output directory is created if needed.
+   Run from the repository root. Do **not** use `--denormalize_uv` unless you know the network outputs normalized wind (default training uses physical m/s targets).
 
-   To rebuild `example_data/lsm_era5.nc` on the same grid as the example ERA5 file (e.g. after replacing the ERA5 slice), run: `python scripts/write_example_lsm.py`.
+   To rebuild `example_data/lsm_era5.nc` on the same grid as the example ERA5 file, run: `python scripts/write_example_lsm.py`.
+
+   To train your own model instead, see [Training](#training).
 
 ## Data Preparation
 

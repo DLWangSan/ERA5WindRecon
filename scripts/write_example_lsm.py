@@ -4,7 +4,7 @@ import xarray as xr
 import os
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
-era_path = os.path.join(ROOT, "example_data", "ERA5_2026_04_08.nc")
+era_path = os.path.join(ROOT, "example_data", "ERA5_2026_04.nc")
 out_path = os.path.join(ROOT, "example_data", "lsm_era5.nc")
 
 era = xr.open_dataset(era_path, engine="netcdf4")
