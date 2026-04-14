@@ -1,4 +1,4 @@
-# STSRNet: Physics-Guided Super-Resolution of Reanalysis Wind Fields
+# STSRNet: A physics-guided deep learning framework for spatiotemporal super-resolution of coastal ERA5 wind fields
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -43,12 +43,48 @@ The STSRNet framework consists of three main components:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/ERA5WindRecon.git
+git clone https://github.com/DLWangSan/ERA5WindRecon.git
 cd ERA5WindRecon
 
 # Install dependencies
 pip install -r requirements.txt
 ```
+
+## Quick start (inference)
+
+The repository includes a small **example** ERA5 slice and matching land–sea mask under [`example_data/`](example_data/) so you can run inference without preparing full regional archives first.
+
+1. **Install** dependencies as in [Installation](#installation) (PyTorch with CUDA is recommended; CPU works but is slower).
+
+2. **Obtain a checkpoint and `normalizer.json`.** Training writes them next to the project root and under `runs/train/<model_type>/` (see [Training](#training)). For example, after training the `normal` variant you should have:
+   - `runs/train/normal/stsr_best.pth`
+   - `normalizer.json` (created in the working directory on the first training run if missing)
+
+   You can train on the bundled example data (short run for smoke testing):
+
+   ```bash
+   python src/train.py \
+       --era5_path example_data \
+       --filename ERA5_2026_04_08.nc \
+       --model_type normal \
+       --lsm_path example_data/lsm_era5.nc \
+       --epochs 1 \
+       --batch_size 2
+   ```
+
+3. **Run inference** on the same example files and write a reconstructed NetCDF:
+
+   ```bash
+   python src/inference.py \
+       --model_type normal \
+       --checkpoint_path runs/train/normal/stsr_best.pth \
+       --era5_path example_data/ERA5_2026_04_08.nc \
+       --lsm_path example_data/lsm_era5.nc \
+       --normalizer_path normalizer.json \
+       --output_path outputs/example_reconstructed.nc
+   ```
+
+   Run these commands from the repository root. The script resolves imports relative to `src/`. The output directory is created if needed.
 
 ## Data Preparation
 

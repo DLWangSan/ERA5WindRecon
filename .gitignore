@@ -46,6 +46,8 @@ venv.bak/
 
 # Data
 *.nc
+!example_data/
+!example_data/*.nc
 *.h5
 *.hdf5
 data/
