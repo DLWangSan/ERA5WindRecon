@@ -75,6 +75,7 @@ class ERA5WindSRDataset(Dataset):
         t2m_hr, t2m_lr = downsample(self.t2m)
 
         x = torch.stack([u_lr, v_lr, msl_lr, t2m_lr], dim=0)
+        n_t_lr = u_lr.shape[0]
 
         if self.use_coord:
             lat = torch.tensor(self.ds["latitude"].values[:self.H][::self.s_scale], dtype=torch.float32)
@@ -83,14 +84,14 @@ class ERA5WindSRDataset(Dataset):
             yy = 2 * (yy - yy.min()) / (yy.max() - yy.min()) - 1
             xx = 2 * (xx - xx.min()) / (xx.max() - xx.min()) - 1
             coord = torch.stack([xx, yy], dim=0)
-            coord = coord.unsqueeze(1).repeat(1, self.t_in, 1, 1)
+            coord = coord.unsqueeze(1).repeat(1, n_t_lr, 1, 1)
             x = torch.cat([x, coord], dim=0)
 
         if self.lsm is not None:
             lsm_lr = torch.tensor(self.lsm).unsqueeze(0).unsqueeze(0)
             lsm_lr = F.interpolate(lsm_lr, size=(H_lr, W_lr), mode="bilinear", align_corners=False)
             lsm_lr = lsm_lr.squeeze(0).squeeze(0)
-            lsm_lr = lsm_lr.repeat(self.t_in, 1, 1)
+            lsm_lr = lsm_lr.repeat(n_t_lr, 1, 1)
             x = torch.cat([x, lsm_lr.unsqueeze(0)], dim=0)
 
         if self.use_interp_label:

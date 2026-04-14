@@ -257,6 +257,8 @@ def main():
                         choices=['normal', 'compare1', 'compare2', 'compare3', 'compare4'])
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--lsm_path', type=str, default='lsm_era5.nc')
+    parser.add_argument('--t_in', type=int, default=18, help='Input time steps (must fit short example series)')
+    parser.add_argument('--t_out', type=int, default=36, help='Output time steps (must be <= number of time steps in NetCDF)')
     args = parser.parse_args()
 
     save_path = os.path.join("./runs/train", f"{args.model_type}")
@@ -268,7 +270,7 @@ def main():
 
     dataset = ERA5WindSRDataset(
         nc_path=nc_path,
-        t_in=18, t_out=36, t_scale=2, s_scale=2,
+        t_in=args.t_in, t_out=args.t_out, t_scale=2, s_scale=2,
         use_coord=True, lsm_path=args.lsm_path
     )
 
@@ -317,4 +319,9 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
 

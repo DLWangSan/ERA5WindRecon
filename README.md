@@ -52,15 +52,21 @@ pip install -r requirements.txt
 
 ## Quick start (inference)
 
-The repository includes a small **example** ERA5 slice and matching land–sea mask under [`example_data/`](example_data/) so you can run inference without preparing full regional archives first.
+The repository includes a small **example** ERA5 slice and a land–sea mask under [`example_data/`](example_data/) so you can run inference without preparing full regional archives first.
 
-1. **Install** dependencies as in [Installation](#installation) (PyTorch with CUDA is recommended; CPU works but is slower).
+1. **Environment** (recommended): use a Conda env with PyTorch and NetCDF I/O, for example:
 
-2. **Obtain a checkpoint and `normalizer.json`.** Training writes them next to the project root and under `runs/train/<model_type>/` (see [Training](#training)). For example, after training the `normal` variant you should have:
+   ```bash
+   conda activate mytorch
+   ```
+
+   Then install dependencies as in [Installation](#installation) (PyTorch with CUDA is recommended; CPU works but is slower). `netcdf4` (or another xarray NetCDF engine) must be available so `xarray` can open `.nc` files.
+
+2. **Obtain a checkpoint and `normalizer.json`.** Training writes them under `runs/train/<model_type>/` and the project root (see [Training](#training)). After training the `normal` variant you should have:
    - `runs/train/normal/stsr_best.pth`
-   - `normalizer.json` (created in the working directory on the first training run if missing)
+   - `normalizer.json` (created on the first training run in the working directory if missing)
 
-   You can train on the bundled example data (short run for smoke testing):
+   The bundled example only has **24 hourly** time steps, so use **`--t_in 12`** and **`--t_out 12`** (default training uses `18` / `36`, which requires a longer series). Example smoke training:
 
    ```bash
    python src/train.py \
@@ -69,10 +75,12 @@ The repository includes a small **example** ERA5 slice and matching land–sea m
        --model_type normal \
        --lsm_path example_data/lsm_era5.nc \
        --epochs 1 \
-       --batch_size 2
+       --batch_size 2 \
+       --t_in 12 \
+       --t_out 12
    ```
 
-3. **Run inference** on the same example files and write a reconstructed NetCDF:
+3. **Run inference** with the **same** `--t_in` / `--t_out` as training:
 
    ```bash
    python src/inference.py \
@@ -81,10 +89,14 @@ The repository includes a small **example** ERA5 slice and matching land–sea m
        --era5_path example_data/ERA5_2026_04_08.nc \
        --lsm_path example_data/lsm_era5.nc \
        --normalizer_path normalizer.json \
-       --output_path outputs/example_reconstructed.nc
+       --output_path outputs/example_reconstructed.nc \
+       --t_in 12 \
+       --t_out 12
    ```
 
-   Run these commands from the repository root. The script resolves imports relative to `src/`. The output directory is created if needed.
+   Run these commands from the repository root (`python src/...` puts `src` on the import path). The output directory is created if needed.
+
+   To rebuild `example_data/lsm_era5.nc` on the same grid as the example ERA5 file (e.g. after replacing the ERA5 slice), run: `python scripts/write_example_lsm.py`.
 
 ## Data Preparation
 
